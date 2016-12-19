@@ -140,6 +140,7 @@ namespace FishSite.NugetWarpper
 				{
 					webresponse = (HttpWebResponse)ex.Response;
 
+#if false
 					response.StatusCode = 502;
 					response.StatusDescription = webresponse.StatusDescription;
 
@@ -147,6 +148,7 @@ namespace FishSite.NugetWarpper
 
 					webresponse.Close();
 					return;
+#endif
 				}
 
 				cache.LastUpdate = DateTime.Now;
@@ -234,6 +236,36 @@ namespace FishSite.NugetWarpper
 
 					}
 				}
+                else
+                {
+                    response.Headers.Add("X-FishCache", "MISS");
+                    response.StatusCode = (int)webresponse.StatusCode;
+                    response.StatusDescription = webresponse.StatusDescription;
+                    foreach (var header in webresponse.Headers.AllKeys.Where(s => s.StartsWith("x-", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        response.AddHeader(header, webresponse.Headers[header]);
+                    }
+                    response.BufferOutput = false;
+                    if (webresponse.ContentLength > 0)
+                        response.AddHeader("Content-Length", webresponse.ContentLength.ToString());
+                    response.Flush();
+
+                    var srcStream = webresponse.GetResponseStream();
+                    var tempBuffer = new byte[0x1000];
+                    var tempReadCount = 0;
+
+                    while ((tempReadCount = srcStream.Read(tempBuffer, 0, tempBuffer.Length)) > 0)
+                    {
+                        if (!response.IsClientConnected)
+                        {
+                            break;
+                        }
+
+                        response.BinaryWrite(tempReadCount == tempBuffer.Length ? tempBuffer : tempBuffer.Take(tempReadCount).ToArray());
+                    }
+
+                    responseProcessed = true;
+                }
 
 				webresponse.Close();
 			}
@@ -276,16 +308,27 @@ namespace FishSite.NugetWarpper
 				request.Headers.Add(header, context.Request.Headers[header]);
 			}
 
-			var response = (HttpWebResponse)request.GetResponse();
+            HttpWebResponse response;
+            try
+            {
+                response = (HttpWebResponse)request.GetResponse();
+            }
+            catch (WebException e)
+            {
+                response = e.AsHttpWebResponse();
+                if (response == null)
+                    throw;
+            }
 			//set headers
 			foreach (var header in response.Headers.AllKeys.Where(s => s.StartsWith("x-", StringComparison.OrdinalIgnoreCase)))
 			{
 				context.Response.Headers.Add(header, response.Headers[header]);
 			}
 			context.Response.StatusCode = (int)response.StatusCode;
+            context.Response.StatusDescription = response.StatusDescription;
 
-			//copy
-			if (context.Request.Url.GetFileName().EndsWith(".json"))
+            //copy
+            if (context.Request.Url.GetFileName().EndsWith(".json"))
 			{
 				var br = new StreamReader(response.GetResponseStream(), Encoding.UTF8);
 				var content = br.ReadToEnd();
