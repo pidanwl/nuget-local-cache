@@ -79,3 +79,6 @@ iFishWeb/FishSite/FishSite.UI/resources
 *.min.js
 *.min.css
 *.min.js.map
+/src/.vs
+/src/.idea
+/src/v3
